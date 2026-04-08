@@ -4,10 +4,11 @@ import { useEffect, useState, useRef } from 'react';
 import { useStore } from '@/lib/store';
 import { getSocket } from '@/lib/socket';
 import { supabase } from '@/lib/supabase';
+import ChatHeader from '../../_components/ChatHeader';
+import RichInput from '../../_components/RichInput';
 
 export default function DMView({ params }: { params: { workspace: string, userId: string } }) {
     const { messages, setMessages, addMessage } = useStore();
-    const [input, setInput] = useState('');
     const [channelId, setChannelId] = useState<string | null>(null);
     const [recipient, setRecipient] = useState<any>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -17,12 +18,9 @@ export default function DMView({ params }: { params: { workspace: string, userId
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) return;
 
-            // Fetch recipient info
             const { data: userData } = await supabase.from('profiles').select('*').eq('id', params.userId).single();
             setRecipient(userData);
 
-            // Find or create a private channel between session.user.id and params.userId
-            // This is a simplified logic: look for a private channel where both are members
             const { data: existingChannels } = await supabase
                 .from('channels')
                 .select('id, channel_members(user_id)')
@@ -41,7 +39,6 @@ export default function DMView({ params }: { params: { workspace: string, userId
             }
 
             if (!foundChannelId) {
-                // Create new private channel
                 const { data: workspace } = await supabase.from('workspaces').select('id').eq('slug', params.workspace).single();
                 if (!workspace) return;
 
@@ -59,10 +56,8 @@ export default function DMView({ params }: { params: { workspace: string, userId
                     foundChannelId = newChannel.id;
                 }
             }
-
             setChannelId(foundChannelId);
         };
-
         setupDM();
     }, [params.userId, params.workspace]);
 
@@ -81,7 +76,6 @@ export default function DMView({ params }: { params: { workspace: string, userId
                 setMessages(data.reverse());
             }
         };
-
         loadMessages();
 
         const initializeSocket = async () => {
@@ -90,7 +84,7 @@ export default function DMView({ params }: { params: { workspace: string, userId
                 const socket = getSocket(session.access_token);
                 socket.emit('join_channel', { channelId });
 
-                socket.on('message_received', (msg) => {
+                socket.on('message_received', (msg: any) => {
                     if (msg.channel_id === channelId) {
                         addMessage(msg);
                     }
@@ -111,68 +105,66 @@ export default function DMView({ params }: { params: { workspace: string, userId
         }
     }, [messages]);
 
-    const handleSend = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!input.trim() || !channelId) return;
-
+    const handleSend = async (content: string) => {
+        if (!channelId) return;
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
             const socket = getSocket(session.access_token);
-            socket.emit('send_message', { channelId, content: input });
-            setInput('');
+            socket.emit('send_message', { channelId, content });
         }
     };
 
     return (
         <div className="flex flex-col h-full bg-white">
-            <div className="p-4 border-b border-gray-200 bg-white">
-                <h2 className="text-xl font-bold text-gray-900 flex items-center">
-                    <div className="w-2 h-2 rounded-full bg-green-500 mr-2"></div>
-                    {recipient?.full_name || 'Loading...'}
-                </h2>
-            </div>
+            <ChatHeader 
+                title={recipient?.full_name || 'Loading...'} 
+                avatar={recipient?.avatar_url}
+                isPrivate
+            />
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-4" ref={scrollRef}>
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-1" ref={scrollRef}>
+                <div className="flex items-center my-6">
+                    <div className="flex-1 h-px bg-gray-200"></div>
+                    <div className="px-4 py-1 text-xs font-bold text-gray-500 bg-white border border-gray-200 rounded-full shadow-sm">
+                        Today
+                    </div>
+                    <div className="flex-1 h-px bg-gray-200"></div>
+                </div>
+
                 {messages.map((msg, i) => (
-                    <div key={i} className="flex space-x-3 group hover:bg-gray-50 p-2 rounded-lg transition-colors">
-                        <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden shrink-0 flex items-center justify-center font-bold text-gray-500">
+                    <div key={msg.id || i} className="flex items-start space-x-3 group hover:bg-gray-50 px-4 py-2 -mx-4 transition-colors relative">
+                        <div className="w-10 h-10 rounded-lg bg-gray-100 overflow-hidden shrink-0 flex items-center justify-center font-bold text-gray-500 text-lg">
                             {msg.profiles?.avatar_url ? (
-                                <img src={msg.profiles.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                                <img src={msg.profiles.avatar_url} alt="" className="w-full h-full object-cover" />
                             ) : (
                                 (msg.profiles?.full_name?.[0] || '?').toUpperCase()
                             )}
                         </div>
-                        <div className="flex-1">
+                        <div className="flex-1 min-w-0">
                             <div className="flex items-baseline space-x-2">
-                                <span className="font-bold text-gray-900">{msg.profiles?.full_name || 'Unknown User'}</span>
-                                <span className="text-xs text-gray-500">{new Date(msg.created_at).toLocaleTimeString()}</span>
+                                <span className="font-black text-[15px] text-gray-900 leading-none hover:underline cursor-pointer">{msg.profiles?.full_name || 'Anonymous User'}</span>
+                                <span className="text-[11px] text-gray-500 font-medium">{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                             </div>
-                            <div className="text-gray-800 break-words mt-1">{msg.content}</div>
+                            <div className="text-[15px] text-gray-800 break-words mt-0.5 leading-relaxed">{msg.content}</div>
+                        </div>
+
+                        {/* Hover Actions */}
+                        <div className="absolute right-4 top-2 hidden group-hover:flex items-center bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden animate-in fade-in duration-200">
+                             <button className="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50 border-r border-gray-100">
+                                React
+                             </button>
+                             <button className="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50">
+                                Reply
+                             </button>
                         </div>
                     </div>
                 ))}
             </div>
             
-            <div className="p-4 bg-white border-t border-gray-200">
-                <form onSubmit={handleSend} className="flex items-end space-x-2 border border-gray-300 rounded-lg p-2 focus-within:ring-1 ring-blue-500 shadow-sm bg-gray-50">
-                    <textarea 
-                        className="flex-1 max-h-32 bg-transparent border-0 focus:ring-0 resize-none px-2 py-1"
-                        placeholder={`Message ${recipient?.full_name || 'user'}`}
-                        rows={1}
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault();
-                                handleSend(e);
-                            }
-                        }}
-                    />
-                    <button type="submit" disabled={!input.trim() || !channelId} className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded disabled:opacity-50 transition-colors">
-                        Send
-                    </button>
-                </form>
-            </div>
+            <RichInput 
+                placeholder={`Message ${recipient?.full_name || 'Individual'}`} 
+                onSend={handleSend} 
+            />
         </div>
     );
 }
