@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - UPSTASH_REDIS_URL=redis://redis:6379
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+    depends_on:
+      - redis
+    command: ["pnpm", "run", "start", "--filter", "server"]
+
+  redis:
+    image: redis:6.2-alpine
+    ports:
+      - "6379:6379"
